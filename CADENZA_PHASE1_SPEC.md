@@ -10,14 +10,22 @@
 |---|---|---|
 | Framework | **Flutter 3.x** | Single codebase for Android + Windows desktop; you already know this stack from SmartSpend |
 | Local DB | **sqflite** (Android) — see note below for Windows | Matches SmartSpend, zero new learning curve |
-| Audio engine | **just_audio** + **audio_service** (background playback, media notifications) | Most mature Flutter audio stack; gapless supported via `just_audio`'s clipping/seamless queue, not bit-perfect but good enough for MVP |
+| Audio engine | **just_audio** on Android, **just_audio + just_audio_media_kit** (libmpv backend) on Windows | Revised — see "AUDIO ENGINE FIX" below, this was a real gap in the first pass |
+| Background playback / media controls | **audio_service** (Android/iOS/Linux) + **audio_service_win** (Windows SMTC) | First pass didn't account for Windows — audio_service has no native Windows support without this add-on package |
 | File scanning | **MediaStore** via `on_audio_query` plugin (Android) / direct filesystem walk (Windows) | Avoids raw folder scanning on Android 11+ scoped storage — this is mandatory, not optional |
-| Metadata read (local tags) | `flutter_media_metadata` or `id3` (fallback) | Reads embedded tags before any online enrichment |
-| State management | **Riverpod** (or Provider if you want zero new learning curve from SmartSpend) | Your call — flag which one to Kiro explicitly |
+| Metadata read (local tags) | **flutter_media_metadata** (alexmercerind fork — supports Windows, Linux, macOS, Android, iOS, Web) | One package, all target platforms — don't use a metadata reader that's mobile-only |
+| State management | **Riverpod** | Locked decision — Cadenza's long-range state surface (playback, queue, scan progress, multi-screen sync, eventual plugin system per VISION.md) benefits from Riverpod's compile-time safety more than a smaller app like SmartSpend does; worth eating the learning curve now while the codebase is small |
 
 **Windows DB note:** `sqflite` doesn't support Windows natively. Use `sqflite_common_ffi` for desktop, same SQL schema, different bootstrap. Tell Kiro this explicitly or it'll try to run mobile sqflite on Windows and fail silently on first launch.
 
 **Online metadata (MusicBrainz/Discogs/Last.fm/AcoustID) is OUT of Phase 1 entirely.** Local tag reading only. This directly resolves the offline-first contradiction flagged earlier — nothing in MVP requires network.
+
+### ⚠️ Audio engine fix (this corrects what I gave you last time)
+
+- Plain `just_audio` on Windows runs over `just_audio_windows`, implemented on the **WinRT MediaPlayer** API. It works, but WinRT's format support is narrower than what Cadenza's original spec promises — FLAC/OGG/OPUS/ALAC aren't guaranteed to play cleanly across every encoder.
+- The fix real Flutter music-player projects use is **`just_audio_media_kit`** — a drop-in backend that routes `just_audio` through **libmpv** on Windows and Linux instead of WinRT. libmpv has the best real-world format compatibility of anything available to Flutter, which matters given your format list.
+- You still write against the same `just_audio` API — this is a backend swap, not an architecture change. Android stays on plain `just_audio`, already solid there.
+- **Windows media controls**: `audio_service` has no built-in Windows implementation (only Android/iOS/web/Linux-via-mpris). You need the companion package **`audio_service_win`**, which adds Windows System Media Transport Controls (SMTC) support — this is what makes media keys, the taskbar thumbnail controls, and the Windows 11 "now playing" flyout work. Skip it and Windows playback works but has zero OS-level media integration.
 
 ---
 
@@ -55,12 +63,20 @@ CREATE TABLE tracks (
   artist TEXT,
   album TEXT,
   album_artist TEXT,
+  composer TEXT,             -- nullable, unused in Phase 1 UI, cheap to capture now
+  conductor TEXT,            -- nullable, unused in Phase 1 UI, cheap to capture now
   genre TEXT,
+  label TEXT,                -- record label, nullable, unused in Phase 1 UI
   year INTEGER,
   track_number INTEGER,
   disc_number INTEGER,
   duration_ms INTEGER,
   file_size INTEGER,
+  cue_sheet_path TEXT,       -- nullable; if set, track is a CUE-sheet virtual split — Phase 2 feature, field just reserved now
+  rating INTEGER DEFAULT 0,      -- 0-5, unused in Phase 1 UI
+  is_favorite INTEGER DEFAULT 0, -- unused in Phase 1 UI
+  play_count INTEGER DEFAULT 0,  -- unused in Phase 1 UI
+  last_played INTEGER,           -- unix timestamp, unused in Phase 1 UI
   date_added INTEGER,       -- unix timestamp
   date_modified INTEGER,    -- for incremental rescan diffing
   artwork_path TEXT,        -- cached extracted artwork, nullable
@@ -72,6 +88,7 @@ CREATE TABLE albums (
   name TEXT NOT NULL,
   album_artist TEXT,
   year INTEGER,
+  label TEXT,                -- unused in Phase 1 UI, reserved
   artwork_path TEXT,
   UNIQUE(name, album_artist)
 );
@@ -111,6 +128,7 @@ CREATE INDEX idx_tracks_title ON tracks(title);
 Notes for Kiro:
 - `albums` and `artists` tables are **derived/denormalized** from `tracks` on scan — don't hand-maintain them separately, rebuild via `INSERT OR IGNORE` during the scan pass keyed on the unique constraints.
 - `date_modified` + `is_missing` exist specifically to support incremental rescans (Phase 1 requirement, not Phase 2) — full rescan every launch is a perf killer at 10k+ tracks.
+- **`composer`, `conductor`, `label`, `cue_sheet_path`, `rating`, `is_favorite`, `play_count`, `last_played` are schema-reserved but Phase 1 UI must NOT expose them.** They exist now purely to avoid a painful migration later — don't build any screen, filter, or sort around them yet. If a Phase 1 UI screen references any of these, that's scope creep, stop and flag it.
 
 ---
 
@@ -184,12 +202,20 @@ Ship-ready when all of the following hold:
 **Prompt 1 — Project init**
 ```
 Set up a new Flutter 3.x project called "cadenza" targeting Android and Windows desktop.
-Add dependencies: sqflite, sqflite_common_ffi, path_provider, just_audio, audio_service,
-on_audio_query, flutter_media_metadata, riverpod (or provider — confirm which).
+Android applicationId: com.lucidframe.cadenza (confirm/adjust if you have a different
+package naming convention). Windows app identity name: Cadenza.
+Add dependencies: sqflite, sqflite_common_ffi, path_provider, just_audio,
+just_audio_media_kit, media_kit_libs_windows_audio, audio_service, audio_service_win,
+on_audio_query, flutter_media_metadata (use the alexmercerind fork, which supports
+Windows/Linux/macOS/Android/iOS/Web — not the original mobile-only package),
+flutter_riverpod. On Android, target minSdkVersion appropriate for READ_MEDIA_AUDIO
+(Android 13+ granular media permission) with a fallback to READ_EXTERNAL_STORAGE for
+older versions — use permission_handler for this.
 Create the folder structure exactly as specified in CADENZA_PHASE1_SPEC.md section 3.
 Do not add any packages related to networking, MusicBrainz, or cloud sync — this is an
 offline-only Phase 1 build.
 ```
+*(Windows build prerequisite, already satisfied: Visual Studio with the "Desktop development with C++" workload must be installed before `flutter run -d windows` will work.)*
 
 **Prompt 2 — Database layer**
 ```
@@ -213,10 +239,15 @@ is_missing=1 rather than deleting them outright.
 
 **Prompt 4 — Audio service**
 ```
-Implement audio_player_service.dart wrapping just_audio + audio_service for background
-playback, lock-screen/notification media controls, and queue management (add, reorder,
-remove, play-next). No crossfade, no EQ, no ReplayGain — those are explicitly out of
-scope for this phase.
+Implement audio_player_service.dart wrapping just_audio for playback. On Windows,
+initialize just_audio_media_kit (JustAudioMediaKit.ensureInitialized()) so playback
+routes through libmpv instead of WinRT MediaPlayer — this is required for reliable
+FLAC/OGG/OPUS/ALAC support. Wire up audio_service for background playback and media
+controls on Android; audio_service_win handles the Windows SMTC integration
+automatically once added as a dependency, no separate Windows-specific handler code
+should be needed beyond the standard AudioHandler implementation. Implement queue
+management (add, reorder, remove, play-next). No crossfade, no EQ, no ReplayGain —
+those are explicitly out of scope for this phase.
 ```
 
 **Prompt 5 — UI**
@@ -231,17 +262,37 @@ with me before finalizing if none exist yet.
 
 ---
 
-## 6. WHAT'S DELIBERATELY DEFERRED (don't let Kiro "helpfully" add these early)
+## 6. OPTIONAL WINDOWS DESKTOP POLISH (nice-to-have, not blocking)
+
+Not required for Phase 1 done-ness, but cheap to add if Kiro has slack — these match your original "Windows 11 Media Player" visual inspiration and are commonly paired with `media_kit`-based players:
+- **`windows_taskbar`** — adds play/pause/skip buttons and progress to the Windows taskbar thumbnail preview, a small but very "native app" touch for a music player specifically
+- **`window_manager`** — custom title bar / window chrome control if you want something less default-Win32 than the stock Flutter window
+- **`fluent_ui`** — optional if you want actual Windows 11 Fluent Design widgets instead of Material on desktop; skip this if it adds too much design-system overhead for Phase 1 — Material everywhere is a perfectly fine MVP choice and keeps Android/Windows visually consistent
+
+Don't let Kiro pull these in until the core scan/playback/library loop in section 1 is done and tested — polish before correctness is how Phase 1 timelines slip.
+
+---
+
+## 7. WHAT'S DELIBERATELY DEFERRED (don't let Kiro "helpfully" add these early)
 
 | Feature | Phase |
 |---|---|
 | MusicBrainz/Discogs/AcoustID metadata enrichment | 2 |
-| Smart playlists, duplicate detection, library health | 2 |
+| Smart playlists, duplicate detection, library health dashboard | 2 |
 | Fuzzy search, lyrics indexing | 2 |
-| Full desktop tag editor, batch tools | 3 |
-| Android ↔ Windows sync | 4 |
+| Ratings, favorites, play count/last-played surfaced in UI | 2 |
+| CUE sheet parsing/virtual track splitting | 2 |
+| Full desktop tag editor, batch tools (batch rename, batch tag edit) | 3 |
+| Artwork downloader, CD ripping, format conversion | 3 |
+| Composer/conductor/label fields surfaced in library views | 3 |
+| Theme system (One UI / Fluent / Material You / AMOLED / custom accents) | 3 |
+| Android ↔ Windows sync — protocol still undefined, needs its own design pass before any Phase 3 work starts | 3 |
 | Plugin system | 4 |
-| Crossfade / ReplayGain / EQ / pitch control | 2–3 (revisit if just_audio can't support cleanly) |
+| Crossfade / ReplayGain / EQ / parametric EQ / tempo / pitch control | 2–3 (media_kit's libmpv backend can likely support most of this later without a backend swap — good argument for the Phase 1 audio engine choice holding up long-term) |
+| Android Auto, Wear OS, widgets, Material You dynamic color | 3–4 |
+| Local-only AI features (playlist generation, underplayed-song surfacing, duplicate/metadata suggestions) | 4 — stays offline-first since it runs against your own library, no new network dependency |
+| NAS / Jellyfin / Navidrome integration, web companion | 4+ |
+| DSD support | Unscheduled — narrow audience, revisit only if there's real demand |
 | Handheld editions (PSP/Vita/3DS) | Future, separate lightweight rebuild — not a port |
 
 If Kiro starts implementing anything from this table unprompted, point it back to this file.

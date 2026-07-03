@@ -1,0 +1,18 @@
+# Flutter build output (inside cadenza/ subfolder)
+cadenza/build/
+cadenza/.dart_tool/
+cadenza/.flutter-plugins
+cadenza/.flutter-plugins-dependencies
+
+# Windows build artifacts
+cadenza/windows/flutter/generated_plugin_registrant.cc
+cadenza/windows/flutter/generated_plugin_registrant.h
+cadenza/windows/flutter/generated_plugins.cmake
+
+# Android build artifacts
+cadenza/android/.gradle/
+cadenza/android/captures/
+
+# OS files
+.DS_Store
+Thumbs.db

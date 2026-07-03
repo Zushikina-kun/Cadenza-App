@@ -1,0 +1,66 @@
+name: cadenza
+description: An offline-first local music player for Android and Windows.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.11.1 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Database
+  sqflite: ^2.3.3
+  sqflite_common_ffi: ^2.3.4
+
+  # Path utilities
+  path_provider: ^2.1.4
+  path: ^1.9.0
+
+  # Audio playback
+  just_audio: ^0.9.42
+  just_audio_media_kit: ^2.0.0
+  media_kit_libs_windows_audio: ^1.0.5
+
+  # Background audio / media controls
+  audio_service: ^0.18.16
+  audio_service_win: ^0.0.3
+
+  # Android media scanning (MediaStore, scoped storage safe)
+  on_audio_query: ^2.9.0
+
+  # Metadata reading (alexmercerind fork — supports Windows/Linux/macOS/Android/iOS/Web)
+  flutter_media_metadata: ^1.0.0+1
+
+  # ID3 fallback metadata parser (discontinued but functional for Phase 1)
+  id3: ^1.0.2
+
+  # State management
+  flutter_riverpod: ^2.6.1
+  riverpod_annotation: ^2.6.1
+
+  # Navigation
+  go_router: ^14.6.2
+
+  # Folder/file picking
+  file_picker: ^8.1.6
+
+  # Theme persistence
+  shared_preferences: ^2.3.3
+
+  # Artwork cache key (SHA-1)
+  crypto: ^3.0.6
+
+  # Android permissions
+  permission_handler: ^11.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  build_runner: ^2.4.13
+  riverpod_generator: ^2.6.3
+
+flutter:
+  uses-material-design: true
