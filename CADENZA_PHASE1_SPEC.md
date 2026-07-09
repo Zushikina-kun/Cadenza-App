@@ -4,6 +4,17 @@
 
 ---
 
+> **Revision note — 2026-07-09:**
+> Two reference repos were cloned and analyzed. Several implementation approaches in this spec have been superseded. See `PLAN.md` for the full revised build plan and `KNOWN_ISSUES.md` for updated fix strategies. Summary of key changes:
+>
+> - **Scan engine:** Use a persistent background `Isolate` (not `compute()`) for metadata reads — avoids repeated isolate spawn overhead at scale. See `PLAN.md` Phase A1.
+> - **Library state:** Replace `FutureProvider` + `invalidate()` with in-memory reactive `StateNotifierProvider`. Scan engine updates the list directly; no invalidation needed. See `PLAN.md` Phase A2.
+> - **Miniplayer:** Replace the current stub with a full 3-state `AnimationController` (mini / expanded / queue). See `PLAN.md` Phase B2+B3.
+> - **Desktop layout:** Use the widescreen docked-panel model (player on right, library on left) instead of a nav rail + bottom miniplayer. Breakpoint: 700px wide. See `PLAN.md` Phase B2.
+> - **Reference implementations:** `namidaco/namida` (Flutter, same stack, production quality) and `AyraHikari/SamsungMusicPort` (Samsung Music decompiled APK, UI/UX reference).
+
+---
+
 ## 0. STACK DECISION (LOCKED)
 
 | Layer | Choice | Why |
